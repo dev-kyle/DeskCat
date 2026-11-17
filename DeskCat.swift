@@ -486,7 +486,8 @@ final class YarnView: NSView {
 enum CatState {
     case walking, sitting, sleeping, chasing, petted, held, falling, landing, swatting, crouching, jumping, climbing,
          playing,
-         airborne  // drawing only: mid-air, ready to land
+         airborne,  // drawing only: mid-air, ready to land
+         lyingDown  // winding down into a nap
 }
 
 // MARK: - Ledges (screen floors and the tops of other windows)
@@ -737,6 +738,7 @@ final class CatView: NSView {
             facingRight = Bool.random()
         case .sitting: stateTime = duration ?? .random(in: 3...7)
         case .sleeping: stateTime = duration ?? .random(in: 12...25)
+        case .lyingDown: stateTime = duration ?? CatView.lieDownDuration
         case .chasing: stateTime = duration ?? 6
         case .petted: stateTime = duration ?? 2.5
         case .landing: stateTime = duration ?? 0.6
@@ -1042,11 +1044,16 @@ final class CatView: NSView {
         if [.sitting, .walking, .sleeping].contains(state) && CGFloat.random(in: 0..<1) < 0.75 { startPlay() }
     }
 
+    static let lieDownDuration: CGFloat = 2.2
+
+    /// Yawn, blink, and sink into a loaf before actually sleeping.
+    func goToSleep() { enter(.lyingDown) }
+
     func pickNext() {
         let r = CGFloat.random(in: 0..<1)
         // On one of her own platforms: hang out a bit, then head back down.
         if let l = ledge, l.isTemp {
-            if state == .sleeping || r < 0.4 { descend() } else { enter(r < 0.85 ? .sitting : .sleeping) }
+            if state == .sleeping || r < 0.4 { descend() } else if r < 0.85 { enter(.sitting) } else { goToSleep() }
             return
         }
         if state != .sleeping {
@@ -1075,7 +1082,7 @@ final class CatView: NSView {
         case ..<0.45: enter(.walking)
         case ..<0.70: enter(.sitting)
         case ..<0.85: enter(.chasing)
-        default: enter(.sleeping)
+        default: goToSleep()
         }
     }
 
@@ -1147,6 +1154,8 @@ final class CatView: NSView {
             if stateTime <= 0 { pickNext() }
         case .sleeping:
             if stateTime <= 0 { pickNext() }
+        case .lyingDown:
+            if stateTime <= 0 { enter(.sleeping) }
         case .landing:
             if stateTime <= 0 {
                 if !route.isEmpty {
@@ -1550,6 +1559,49 @@ final class CatView: NSView {
             face = ras.head(40, 38, look: 1, sleepy: true)
             face.eyes = .closed
 
+        case .lyingDown:
+            // Stepped frames: yawn (0-0.3), drowsy blinks (0.3-0.55), then sink from the sit into the loaf.
+            let raw = Float(1 - max(0, min(1, stateTime / CatView.lieDownDuration)))
+            let p = (raw * 11).rounded(.down) / 11
+            func smooth(_ a: Float) -> Float { let c = max(0, min(1, a)); return c * c * (3 - 2 * c) }
+            let k = smooth((p - 0.45) / 0.5)  // 0 = sitting, 1 = loaf
+            func L(_ a: Float, _ b: Float) -> Float { a + (b - a) * k }
+            func LV(_ a: V2, _ b: V2) -> V2 { a + (b - a) * k }
+            let sitTail = [V(31, 44), V(42, 46.6), V(50.5, 44), V(48.5 + sway, 31)]
+            let loafTail = [V(10, 40), V(5, 45), V(24, 46), V(35.5, 43.5)]
+            let tailPts = bezier(LV(sitTail[0], loafTail[0]), LV(sitTail[1], loafTail[1]),
+                                 LV(sitTail[2], loafTail[2]), LV(sitTail[3], loafTail[3]))
+            let sitSpots: [(Float, Float, Float, Float)] = [(-0.55, -0.35, 0.4, 0.42), (-0.7, 0.5, 0.25, 0.3)]
+            let loafSpots: [(Float, Float, Float, Float)] = [(-0.45, -0.5, 0.2, 0.4), (0.1, -0.6, 0.13, 0.3)]
+            // The tail starts behind her and ends wrapped around the front.
+            if k < 0.5 {
+                let tailP = ras.newPart()
+                ras.tube(tailPts, 1.6, 1.2, part: tailP, mat: .black)
+            }
+            let bodyP = ras.newPart()
+            ras.ellipse(L(26, 25), L(35, 39.6), L(9.5, 17), L(11, 7), part: bodyP,
+                        mat: spotted(k < 0.5 ? sitSpots : loafSpots))
+            if k < 0.85 {
+                // Haunch and front legs fold away under her.
+                ras.ellipse(L(20.5, 22), L(39.5, 42), L(7, 3), L(6.8, 3), part: bodyP,
+                            mat: spotted([(0.1, -0.25, 0.55, 0.5)]))
+                ras.tube([V(L(32.5, 37), L(33, 41.5)), V(L(33, 40), 44.8)], 2.2, 2.1, part: bodyP, bias: 0.7, mat: .white)
+                ras.tube([V(L(28.5, 34), L(33, 41.5)), V(L(28.5, 37), 44.8)], 2.3, 2.2, part: bodyP, mat: .white)
+            }
+            if k >= 0.5 {
+                let tailP = ras.newPart()
+                ras.tube(tailPts, 1.5, 1.2, part: tailP, mat: .black)
+            }
+            face = ras.head(L(29, 40), L(18, 38), look: L(1.5, 1), sleepy: k > 0.85)
+            if p < 0.3 {
+                face.eyes = .closed  // big yawn
+                face.mouthOpen = true
+            } else if p < 0.55 {
+                face.eyes = Int(p * 11) % 2 == 0 ? .closed : .open  // slow, heavy blinks
+            } else {
+                face.eyes = .closed
+            }
+
         case .airborne:
             // Mid-air: nose tips with her motion; legs tucked going up, reaching for the ground coming down.
             ras.pivot = V(26, 29)
@@ -1716,7 +1768,7 @@ final class CatView: NSView {
 
     @objc func pet() { cat.pet() }
     @objc func comeHere() { cat.enter(.chasing, 10) }
-    @objc func nap() { cat.enter(.sleeping) }
+    @objc func nap() { cat.goToSleep() }
     @objc func climbStairs() { cat.climbStairs() }
     @objc func jumpUp() { cat.jumpToFloatingLedge() }
     @objc func playYarn() { cat.startPlay() }
@@ -1736,6 +1788,8 @@ final class CatView: NSView {
                                         (.chasing, 3), (.chasing, 3.5), (.sitting, 0),
                                         (.petted, 0), (.sleeping, 0), (.held, 2), (.held, 0), (.held, 1), (.held, 3), (.held, 4),
                                         (.falling, 0), (.falling, 1), (.falling, 2), (.falling, 3),
+                                        (.lyingDown, 0), (.lyingDown, 2), (.lyingDown, 3), (.lyingDown, 4),
+                                        (.lyingDown, 5), (.lyingDown, 6),
                                         (.swatting, 0), (.swatting, 1), (.swatting, 2), (.swatting, 3),
                                         (.climbing, 0), (.climbing, 1), (.climbing, 2), (.climbing, 3), (.climbing, 4)]
     if let only { poses = poses.filter { only.contains($0.0) } }
@@ -1763,6 +1817,7 @@ final class CatView: NSView {
             }
             if pose.0 == .sleeping { v.t = 0.6 }
             if pose.0 == .held { v.swing = [-0.6, -0.3, 0, 0.3, 0.6][min(Int(pose.1), 4)] }
+            if pose.0 == .lyingDown { v.stateTime = CatView.lieDownDuration * (1 - pose.1 / 6 - 0.01) }
             if pose.0 == .falling { v.airTime = 1; v.vy = [500, 0, -400, -900][min(Int(pose.1), 3)] }
             if pose.0 == .climbing {
                 let perch = Ledge(x0: 0, x1: 100, y: 84, isFloor: false, isTemp: true)
@@ -1842,7 +1897,7 @@ struct DeskCatApp {
         }
         if let i = args.firstIndex(of: "--snapshot"), i + 1 < args.count {
             if args.contains("--zoom") {
-                renderSnapshot(to: args[i + 1], zoom: 4, only: [.sitting, .petted])
+                renderSnapshot(to: args[i + 1], zoom: 4, only: [.lyingDown])
             } else {
                 renderSnapshot(to: args[i + 1])
             }
