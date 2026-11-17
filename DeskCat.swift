@@ -781,6 +781,20 @@ final class CatView: NSView {
     func releaseProps() {
         for p in props { p.fading = true }
         stepProps = []
+        stackDepth = 0
+        refreshLedges()
+    }
+
+    /// How many conjured platforms high she is right now.
+    var stackDepth = 0
+    static let maxStack = 3
+
+    /// She's arrived on a conjured platform: fade the ones she left behind.
+    func arrivedOnPlatform(_ l: Ledge) {
+        for p in props where !p.fading && !(p.ledge.x0 == l.x0 && p.ledge.x1 == l.x1 && p.ledge.y == l.y) {
+            p.fading = true
+        }
+        stackDepth += 1
         refreshLedges()
     }
 
@@ -802,8 +816,8 @@ final class CatView: NSView {
     /// Step i (1...n) is the tread she stands on after i step-ups; the perch is step n + 1.
     /// Each step fades away once she's past it.
     @discardableResult func climbStairs() -> Bool {
-        guard let home = ledge, !home.isTemp, props.isEmpty,
-              state != .held, state != .falling, state != .jumping else { return false }
+        guard ledge != nil, stackDepth < CatView.maxStack, stepProps.isEmpty,
+              state != .held, state != .falling, state != .jumping, state != .climbing else { return false }
         let vf = currentScreen().visibleFrame
         let n = Int.random(in: 4...6)
         let run = CatView.stepRun, rise = CatView.stepRise
@@ -855,7 +869,8 @@ final class CatView: NSView {
 
     /// A single plank appears somewhere above her and she leaps onto it.
     @discardableResult func jumpToFloatingLedge() -> Bool {
-        guard let home = ledge, !home.isTemp, props.isEmpty else { return false }
+        guard ledge != nil, stackDepth < CatView.maxStack, stepProps.isEmpty,
+              state != .held, state != .falling, state != .jumping, state != .climbing else { return false }
         let vf = currentScreen().visibleFrame
         for _ in 0..<8 {
             let dir: CGFloat = Bool.random() ? 1 : -1
@@ -878,7 +893,7 @@ final class CatView: NSView {
     func descend() {
         let below = baseLedges.filter { l in
             let tx = min(max(x, l.x0 + 30), l.x1 - 30)
-            return l.y < y - 30 && abs(tx - x) <= 300 && l.y - y >= -450
+            return l.y < y - 30 && abs(tx - x) <= 300 && l.y - y >= -800
         }
         guard let target = below.max(by: { $0.y < $1.y }) else { hopOff(right: facingRight); return }
         route = []
@@ -1053,7 +1068,15 @@ final class CatView: NSView {
         let r = CGFloat.random(in: 0..<1)
         // On one of her own platforms: hang out a bit, then head back down.
         if let l = ledge, l.isTemp {
-            if state == .sleeping || r < 0.4 { descend() } else if r < 0.85 { enter(.sitting) } else { goToSleep() }
+            if state == .sleeping || r < 0.35 {
+                descend()
+            } else if r < 0.6 && stackDepth < CatView.maxStack && (Bool.random() ? climbStairs() : jumpToFloatingLedge()) {
+                // Going higher.
+            } else if r < 0.88 {
+                enter(.sitting)
+            } else {
+                goToSleep()
+            }
             return
         }
         if state != .sleeping {
@@ -1226,6 +1249,7 @@ final class CatView: NSView {
                 // Walked onto the perch.
                 y = st.perch.y
                 ledge = st.perch
+                arrivedOnPlatform(st.perch)
                 stair = nil
                 climbPitch = 0
                 for p in stepProps { p.fading = true }
@@ -1278,6 +1302,7 @@ final class CatView: NSView {
                 ledge = l
                 vx = 0
                 vy = 0
+                if l.isTemp { arrivedOnPlatform(l) }
                 enter(.landing, !route.isEmpty ? 0.12 : (wasJump ? 0.35 : 0.6))
             } else if y < (ledges.filter { $0.isFloor }.map { $0.y }.min() ?? 0) - 150 {
                 // Fell somewhere with no floor (e.g. between screens): put her back on the main screen.
@@ -1326,6 +1351,14 @@ final class CatView: NSView {
                 switch action {
                 case "stairs": print("-> climbStairs \(climbStairs())")
                 case "yarn": print("-> startPlay \(startPlay())")
+                case "stack":
+                    traceFired = false  // keep going higher whenever she's settled on a platform
+                    if stackDepth < CatView.maxStack {
+                        print("-> stack depth=\(stackDepth) \(Bool.random() ? climbStairs() : jumpToFloatingLedge())")
+                    } else if ledge?.isTemp ?? false {
+                        traceFired = true
+                        print("-> descend from depth \(stackDepth)"); descend()
+                    }
                 default: print("-> jumpUp \(jumpToFloatingLedge())")
                 }
             }
