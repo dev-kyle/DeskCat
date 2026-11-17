@@ -1,0 +1,7 @@
+# Built app (run ./build.sh to make it)
+DeskCat.app/
+
+# Generated preview images
+previews/
+
+.DS_Store
