@@ -110,6 +110,8 @@ struct Raster {
     private var parts = 0
     /// Overall head size (1 = current).
     nonisolated(unsafe) static var headScale: Float = 0.92
+    /// Scales how far the face looks sideways (0 = straight at the viewer, used mid-turn).
+    nonisolated(unsafe) static var lookMul: Float = 1
     /// Whole-pose rotation around `pivot` (design units). Positive swings the bottom to the right.
     var rot: Float = 0
     var pivot = V(0, 0)
@@ -223,7 +225,7 @@ struct Raster {
     /// Head with black ears and the black cap / white triangle marking. Returns where the face goes.
     mutating func head(_ hx: Float, _ hy: Float, look lx: Float, sleepy: Bool = false) -> Face {
         let p = newPart()
-        let ncell = Int(((hx + lx * Raster.headScale) / K).rounded(.down))
+        let ncell = Int(((hx + lx * Raster.lookMul * Raster.headScale) / K).rounded(.down))
         let erow = Int(((hy + YOFF) / K).rounded(.down))
         let fx = (Float(ncell) + 0.5) * K, fy = (Float(erow) + 0.5) * K - YOFF
 
@@ -607,7 +609,23 @@ final class CatView: NSView {
     var x: CGFloat = 0
     var y: CGFloat = 0
     var vy: CGFloat = 0
-    var facingRight = true
+    var facingRight = true {
+        didSet {
+            guard facingRight != oldValue else { return }
+            if [.walking, .sitting, .chasing, .playing].contains(state) {
+                turnFromRight = oldValue
+                turnTime = CatView.turnDuration
+            } else {
+                turnTime = 0
+            }
+        }
+    }
+    /// A short turn instead of an instant flip: head toward the viewer, a head-on frame, then the new side.
+    static let turnDuration: CGFloat = 0.27
+    var turnTime: CGFloat = 0
+    var turnFromRight = true
+    var turnProgress: CGFloat { 1 - max(0, turnTime) / CatView.turnDuration }
+    var turning: Bool { turnTime > 0 }
 
     var state: CatState = .sitting
     var stateTime: CGFloat = 2
@@ -737,7 +755,7 @@ final class CatView: NSView {
             stateTime = duration ?? .random(in: 3...8)
             facingRight = Bool.random()
         case .sitting: stateTime = duration ?? .random(in: 3...7)
-        case .sleeping: stateTime = duration ?? .random(in: 12...25)
+        case .sleeping: stateTime = duration ?? .random(in: 25...50)
         case .lyingDown: stateTime = duration ?? CatView.lieDownDuration
         case .chasing: stateTime = duration ?? 6
         case .petted: stateTime = duration ?? 2.5
@@ -1070,9 +1088,9 @@ final class CatView: NSView {
         if let l = ledge, l.isTemp {
             if state == .sleeping || r < 0.35 {
                 descend()
-            } else if r < 0.6 && stackDepth < CatView.maxStack && (Bool.random() ? climbStairs() : jumpToFloatingLedge()) {
+            } else if r < 0.47 && stackDepth < CatView.maxStack && (Bool.random() ? climbStairs() : jumpToFloatingLedge()) {
                 // Going higher.
-            } else if r < 0.88 {
+            } else if r < 0.82 {
                 enter(.sitting)
             } else {
                 goToSleep()
@@ -1081,9 +1099,10 @@ final class CatView: NSView {
         }
         if state != .sleeping {
             let a = CGFloat.random(in: 0..<1)
-            if a < 0.12 && climbStairs() { return }
-            if a >= 0.12 && a < 0.22 && jumpToFloatingLedge() { return }
-            if a >= 0.22 && a < 0.30 && startPlay() { return }
+            // Occasional treats: stairs 6%, floating plank 6%, yarn 8%.
+            if a < 0.06 && climbStairs() { return }
+            if a >= 0.06 && a < 0.12 && jumpToFloatingLedge() { return }
+            if a >= 0.12 && a < 0.20 && startPlay() { return }
         }
         if state == .sleeping {
             enter(r < 0.6 ? .sitting : .walking)
@@ -1102,9 +1121,9 @@ final class CatView: NSView {
             return
         }
         switch r {
-        case ..<0.45: enter(.walking)
-        case ..<0.70: enter(.sitting)
-        case ..<0.85: enter(.chasing)
+        case ..<0.40: enter(.walking)
+        case ..<0.63: enter(.sitting)
+        case ..<0.75: enter(.chasing)
         default: goToSleep()
         }
     }
@@ -1127,6 +1146,7 @@ final class CatView: NSView {
         blinkIn -= dt
         if blinkIn <= 0 { blinkLeft = 0.15; blinkIn = .random(in: 2...6) }
         blinkLeft = max(0, blinkLeft - dt)
+        turnTime = max(0, turnTime - dt)
 
         let mouse = NSEvent.mouseLocation
         ledgeScanIn -= dt
@@ -1152,7 +1172,7 @@ final class CatView: NSView {
 
         switch state {
         case .walking:
-            x += (facingRight ? 1 : -1) * 48 * dt
+            if !turning { x += (facingRight ? 1 : -1) * 48 * dt }
             walkPhase += dt * 8
             let onWindow = !(ledge?.isFloor ?? true)
             if x >= range.upperBound {
@@ -1168,7 +1188,7 @@ final class CatView: NSView {
                 enter(.sitting, .random(in: 4...7))
             } else {
                 facingRight = d > 0
-                x += (d > 0 ? 1 : -1) * 140 * dt
+                if !turning { x += (d > 0 ? 1 : -1) * 140 * dt }
                 walkPhase += dt * 16
             }
         case .sitting:
@@ -1223,7 +1243,7 @@ final class CatView: NSView {
             if abs(d) > 6 {
                 playMoving = true
                 facingRight = d > 0
-                x += (d > 0 ? 1 : -1) * min(150 * dt, abs(d))
+                if !turning { x += (d > 0 ? 1 : -1) * min(150 * dt, abs(d)) }
                 walkPhase += dt * 16
                 if abs(bx - x) > 80 && (x <= r.lowerBound + 0.5 || x >= r.upperBound - 0.5) { playWait += dt }
                 if playWait > 2 { endPlay() }
@@ -1453,10 +1473,35 @@ final class CatView: NSView {
         ras.tube([hip, knee, foot], hind ? 2.9 : 2.4, 2.0, part: p, bias: b, mat: .white, spot: spot)
     }
 
+    /// Standing, facing the viewer (the middle of a turn).
+    func frontStandPose() -> (Raster, Face) {
+        var ras = Raster()
+        let tq = Float((t * 6).rounded(.down) / 6)
+        let sway = (sin(tq * 3) * 2).rounded()
+        // Tail curling up out to one side so it shows.
+        let tailP = ras.newPart()
+        ras.tube(bezier(V(32, 31), V(40, 31), V(43, 22), V(40 + sway * 0.5, 13)), 1.6, 1.2, part: tailP, mat: .black)
+        let bodyP = ras.newPart()
+        // Back legs (further away, a shade darker and peeking out wide), then body, then front legs with a gap.
+        ras.tube([V(20.5, 35), V(20.5, 44.8)], 2.0, 2.0, part: bodyP, bias: 0.9, mat: .white, spot: 0...0.6)
+        ras.tube([V(35.5, 35), V(35.5, 44.8)], 2.0, 2.0, part: bodyP, bias: 0.9, mat: .white)
+        ras.ellipse(28, 32, 9.5, 7, part: bodyP, mat: spotted([(-0.75, -0.3, 0.35, 0.45), (0.7, 0.15, 0.3, 0.4)]))
+        ras.tube([V(24, 35), V(24, 44.8)], 2.1, 2.0, part: bodyP, mat: .white)
+        ras.tube([V(32, 35), V(32, 44.8)], 2.1, 2.0, part: bodyP, mat: .white)
+        var face = ras.head(28, 18, look: 0)
+        face.eyes = blinkLeft > 0 ? .closed : .open
+        return (ras, face)
+    }
+
     func buildPose() -> (Raster, Face) {
         let saved = state
         if state == .playing { state = playMoving ? .chasing : .sitting }  // reuse run / sit poses
         if state == .falling && airTime >= 0.12 { state = .airborne }  // righted herself after a moment
+        Raster.lookMul = turning ? 0 : 1
+        defer { Raster.lookMul = 1 }
+        if turning && (state == .walking || state == .chasing) && turnProgress >= 0.33 && turnProgress < 0.67 {
+            return frontStandPose()
+        }
         defer { state = saved }
         var ras = Raster()
         let tq = Float((t * 6).rounded(.down) / 6)  // animation time, stepped like sprite frames
@@ -1684,7 +1729,9 @@ final class CatView: NSView {
         var px = shade(ras)
         drawFace(face, on: &px, raster: ras)
         // addRim(&px)  // light rim for dark wallpapers — off
-        return makeImage(px, mirrored: !facingRight)
+        // Mid-turn she still faces the old way until the halfway point.
+        let showRight = turning && turnProgress < 0.5 ? turnFromRight : facingRight
+        return makeImage(px, mirrored: !showRight)
     }
 
     // MARK: Drawing
@@ -1821,6 +1868,7 @@ final class CatView: NSView {
                                         (.chasing, 3), (.chasing, 3.5), (.sitting, 0),
                                         (.petted, 0), (.sleeping, 0), (.held, 2), (.held, 0), (.held, 1), (.held, 3), (.held, 4),
                                         (.falling, 0), (.falling, 1), (.falling, 2), (.falling, 3),
+                                        (.walking, 10), (.walking, 11), (.walking, 12),
                                         (.lyingDown, 0), (.lyingDown, 2), (.lyingDown, 3), (.lyingDown, 4),
                                         (.lyingDown, 5), (.lyingDown, 6),
                                         (.swatting, 0), (.swatting, 1), (.swatting, 2), (.swatting, 3),
@@ -1850,6 +1898,10 @@ final class CatView: NSView {
             }
             if pose.0 == .sleeping { v.t = 0.6 }
             if pose.0 == .held { v.swing = [-0.6, -0.3, 0, 0.3, 0.6][min(Int(pose.1), 4)] }
+            if pose.0 == .walking && pose.1 >= 10 {
+                v.turnFromRight = false
+                v.turnTime = CatView.turnDuration * (1 - [0.15, 0.5, 0.85][Int(pose.1) - 10])
+            }
             if pose.0 == .lyingDown { v.stateTime = CatView.lieDownDuration * (1 - pose.1 / 6 - 0.01) }
             if pose.0 == .falling { v.airTime = 1; v.vy = [500, 0, -400, -900][min(Int(pose.1), 3)] }
             if pose.0 == .climbing {
@@ -1930,7 +1982,7 @@ struct DeskCatApp {
         }
         if let i = args.firstIndex(of: "--snapshot"), i + 1 < args.count {
             if args.contains("--zoom") {
-                renderSnapshot(to: args[i + 1], zoom: 4, only: [.lyingDown])
+                renderSnapshot(to: args[i + 1], zoom: 4, only: [.walking])
             } else {
                 renderSnapshot(to: args[i + 1])
             }
