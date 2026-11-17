@@ -314,13 +314,9 @@ func shade(_ ras: Raster) -> Pixels {
             let n = Float(tones.count)
             let s = 0.5 - ras.lum[i] * 0.5  // 0 = fully lit, 1 = away from the light
             // Flat cel shading: hard bands, no dithering.
-            var f = s * n * 1.25 - 0.45 + ras.bias[i]
-            if r >= 1 && ras.part[i - GW] > p { f += 1 }  // shadow cast by a part above
-            var t = min(max(Int(f.rounded(.down)), 0), tones.count - 1)
-            // Dark crease where a part in front overlaps this one.
-            if ras.isFront(c - 1, r, p) || ras.isFront(c + 1, r, p) || ras.isFront(c, r - 1, p) || ras.isFront(c, r + 1, p) {
-                t = tones.count - 1
-            }
+            let f = s * n * 1.25 - 0.45 + ras.bias[i]
+            // No creases between overlapping parts: head, body, legs and tail blend into one cat.
+            let t = min(max(Int(f.rounded(.down)), 0), tones.count - 1)
             px.set(c, r, tones[t])
         }
     }
@@ -1533,6 +1529,7 @@ final class CatView: NSView {
                        spot: 0.1...0.5, stride: 5.5, liftHeight: 3.6)  // her back left leg
             jointedLeg(&ras, hipX: 34 + stretch, phase: phi, bob: bob, hind: false, part: bodyP, bias: 0,
                        stride: 5.5, liftHeight: 3.6)
+            ras.tube([V(34 + stretch * 0.6, 27 + bob), V(41 + stretch * 0.5, 22 + bob)], 4.2, 4.0, part: bodyP, mat: .white)  // neck
             face = ras.head(43 + stretch * 0.5, 18 + bob, look: 1.5)
             face.eyes = blink ? .closed : .open
 
@@ -1572,6 +1569,7 @@ final class CatView: NSView {
                        ground: ground(nb.x, pNB))  // her back left leg
             jointedLeg(&ras, hipX: nf.x, phase: pNF, bob: 0, hind: false, part: bodyP, bias: 0,
                        stride: climbStride, liftHeight: 4.5, hipY: nf.y, ground: ground(nf.x, pNF))
+            ras.tube([rot(8, -2), rot(15, -7)], 4.2, 4.0, part: bodyP, mat: .white)  // neck
             let hp = rot(17, -12)
             face = ras.head(hp.x, hp.y, look: 1.5)
             face.eyes = blink ? .closed : .open
@@ -1593,6 +1591,7 @@ final class CatView: NSView {
             jointedLeg(&ras, hipX: 16, phase: phi, bob: bob, hind: true, part: bodyP, bias: 0,
                        spot: 0.1...0.5)  // her back left leg
             jointedLeg(&ras, hipX: 34, phase: phi + .pi, bob: bob, hind: false, part: bodyP, bias: 0)
+            ras.tube([V(34, 27 + bob), V(41, 21 + bob)], 4.2, 4.0, part: bodyP, mat: .white)  // neck
             face = ras.head(43, 17 + bob, look: 1.5)
             face.eyes = blink ? .closed : .open
 
@@ -1700,6 +1699,7 @@ final class CatView: NSView {
                        spot: 0.1...0.5, stride: reach, liftHeight: 0, hipY: 30, ground: ground)  // her back left leg
             jointedLeg(&ras, hipX: 34, phase: .pi, bob: 0, hind: false, part: bodyP, bias: 0,
                        stride: reach, liftHeight: 0, hipY: 30, ground: ground)
+            ras.tube([V(34, 27), V(41, 22)], 4.2, 4.0, part: bodyP, mat: .white)  // neck
             face = ras.head(43, 18, look: 1.5)
             face.eyes = .open
 
