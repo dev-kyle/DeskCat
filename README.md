@@ -7,10 +7,10 @@ A little pixel-art cat that lives on your macOS desktop. She's modeled after a r
 Needs macOS 13+ and the Swift toolchain (Xcode or the Command Line Tools).
 
 ```bash
-./build.sh --install
+./build.sh --install --hooks
 ```
 
-That builds `DeskCat.app` (with her pixel-art icon), copies it into Applications, and opens it. After that you can launch her from Spotlight or Launchpad like any app. Plain `./build.sh` just builds the app in this folder.
+That builds `DeskCat.app` (with her pixel-art icon), copies it into Applications, and opens it. After that you can launch her from Spotlight or Launchpad like any app. `--hooks` also sets up the Claude Code signs (see below); leave it off if you don't use Claude Code. Plain `./build.sh` just builds the app in this folder.
 
 She has no Dock icon; she lives in the 🐈 menu bar item and her right-click menu.
 
@@ -46,39 +46,19 @@ She can sit up and hold a little sign, for example "DONE!" when a Claude agent f
 
 The sign fits up to 8 characters (letters, numbers, `! ? . , : - '`, and `<3` for a heart); letters that won't fit on the sign are left off. She holds it for 10 seconds, or until you click her. If she's mid-air or on the stairs, she shows it as soon as she lands.
 
-To have her show "DONE!" whenever Claude Code (CLI, desktop app or IDE) finishes a reply, and "APPROVE" when it's waiting for you to approve something, add these hooks to `~/.claude/settings.json`:
+To have her show "DONE!" whenever Claude Code (CLI, desktop app or IDE) finishes a reply, and "APPROVE" when it's waiting for you to approve something, run:
 
-```json
-{
-  "hooks": {
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/Applications/DeskCat.app/Contents/MacOS/DeskCat --sign \"DONE!\" >/dev/null 2>&1 || true",
-            "async": true
-          }
-        ]
-      }
-    ],
-    "PermissionRequest": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/Applications/DeskCat.app/Contents/MacOS/DeskCat --sign \"APPROVE\" >/dev/null 2>&1 || true",
-            "async": true
-          }
-        ]
-      }
-    ]
-  }
-}
+```bash
+./build.sh --hooks
 ```
 
-If your settings file already has a `hooks` section (or a `Stop` / `PermissionRequest` list), add these entries to it. Use `~/Applications/...` instead if that's where `build.sh` installed her.
+That adds two hooks to `~/.claude/settings.json` and leaves everything else in the file alone. It backs up the old file first, and running it twice does nothing extra. New Claude Code sessions pick the hooks up. To take them back out:
+
+```bash
+./build.sh --remove-hooks
+```
+
+To do it by hand instead, add a `Stop` hook and a `PermissionRequest` hook (matcher `"*"`) whose command is `/Applications/DeskCat.app/Contents/MacOS/DeskCat --sign "DONE!"` and `... --sign "APPROVE"`. Merge them into the file's existing `hooks` section rather than pasting at the end.
 
 ## Interacting
 
