@@ -11,6 +11,7 @@
 // Use the menu bar item (or right-click the cat) for options.
 
 import Cocoa
+import ServiceManagement
 import simd
 
 func P(_ x: CGFloat, _ y: CGFloat) -> NSPoint { NSPoint(x: x, y: y) }
@@ -1724,6 +1725,41 @@ final class CatView: NSView {
         return (ras, face)
     }
 
+    /// Drop her back in from the top of the screen your cursor is on, clearing anything she was doing.
+    func respawn() {
+        dragging = false
+        route = []
+        stair = nil
+        playSwat = false
+        releaseProps()
+        if ballPanel != nil { ballFading = true }
+        turnTime = 0
+        swing = 0
+        swingVel = 0
+        let m = NSEvent.mouseLocation
+        let vf = (NSScreen.screens.first { $0.frame.contains(m) } ?? NSScreen.main ?? NSScreen.screens[0]).visibleFrame
+        x = min(max(m.x, vf.minX + 60), vf.maxX - 60)
+        y = vf.maxY - 160
+        vx = 0
+        vy = 0
+        enter(.falling)
+        window?.orderFrontRegardless()
+    }
+
+    /// The current pose as pixels (before mirroring), plus the bounding box of the cat in them.
+    func spritePixels() -> (Pixels, minC: Int, minR: Int, maxC: Int, maxR: Int) {
+        let (ras, face) = buildPose()
+        var px = shade(ras)
+        drawFace(face, on: &px, raster: ras)
+        var minC = GW, minR = GH, maxC = 0, maxR = 0
+        for r in 0..<GH {
+            for c in 0..<GW where px.alpha(c, r) > 0 {
+                minC = min(minC, c); maxC = max(maxC, c); minR = min(minR, r); maxR = max(maxR, r)
+            }
+        }
+        return (px, minC, minR, maxC, maxR)
+    }
+
     func spriteImage() -> CGImage? {
         let (ras, face) = buildPose()
         var px = shade(ras)
@@ -1820,6 +1856,16 @@ final class CatView: NSView {
                           userInfo: nil, repeats: true)
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
+
+        // Opening DeskCat again (Spotlight, Launchpad, Finder) respawns this cat instead of starting another.
+        DistributedNotificationCenter.default().addObserver(self, selector: #selector(respawn),
+                                                            name: DeskCatApp.respawnNote, object: nil)
+    }
+
+    /// Opening the app again while it's running (Spotlight, Launchpad, Finder) respawns her.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        cat.respawn()
+        return false
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) { populate(menu) }
@@ -1839,9 +1885,14 @@ final class CatView: NSView {
         menu.addItem(item("Jump Up", #selector(jumpUp)))
         menu.addItem(item("Play with Yarn", #selector(playYarn)))
         menu.addItem(.separator())
+        menu.addItem(item("Respawn", #selector(respawn)))
+        menu.addItem(.separator())
         let top = item("Always on Top", #selector(toggleOnTop))
         top.state = panel.level == .floating ? .on : .off
         menu.addItem(top)
+        let login = item("Open at Login", #selector(toggleLogin))
+        login.state = SMAppService.mainApp.status == .enabled ? .on : .off
+        menu.addItem(login)
         menu.addItem(.separator())
         menu.addItem(item("Quit DeskCat", #selector(quit)))
     }
@@ -1857,7 +1908,65 @@ final class CatView: NSView {
         panel.level = onTop ? .floating : .normal
         UserDefaults.standard.set(onTop, forKey: "onTop")
     }
+    @objc func respawn() { cat.respawn() }
+    @objc func toggleLogin() {
+        do {
+            if SMAppService.mainApp.status == .enabled {
+                try SMAppService.mainApp.unregister()
+            } else {
+                try SMAppService.mainApp.register()
+            }
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "Couldn't change Open at Login"
+            alert.informativeText = "\(error.localizedDescription)\n\nYou can also add DeskCat in System Settings → General → Login Items."
+            alert.runModal()
+        }
+    }
     @objc func quit() { NSApp.terminate(nil) }
+}
+
+// MARK: - App icon
+
+/// Writes a macOS .iconset folder: her sitting sprite, pixel-crisp, on a soft rounded tile.
+@MainActor func renderIconset(to dir: String) {
+    try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+    let v = CatView(frame: NSRect(origin: .zero, size: CatView.size))
+    v.state = .sitting
+    v.t = 0.2
+    let (px, minC, minR, maxC, maxR) = v.spritePixels()
+    guard let full = makeImage(px, mirrored: false),
+          let sprite = full.cropping(to: CGRect(x: minC, y: minR, width: maxC - minC + 1, height: maxR - minR + 1))
+    else { return }
+    let files: [(String, Int)] = [
+        ("icon_16x16", 16), ("icon_16x16@2x", 32), ("icon_32x32", 32), ("icon_32x32@2x", 64),
+        ("icon_128x128", 128), ("icon_128x128@2x", 256), ("icon_256x256", 256), ("icon_256x256@2x", 512),
+        ("icon_512x512", 512), ("icon_512x512@2x", 1024),
+    ]
+    for (name, size) in files {
+        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: size, pixelsHigh: size, bitsPerSample: 8,
+                                         samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                         colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
+              let ctx = NSGraphicsContext(bitmapImageRep: rep) else { continue }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = ctx
+        let s = CGFloat(size)
+        // Rounded tile (Apple's icon grid: ~10% inset, ~22% corner radius).
+        let tile = NSRect(x: s * 0.1, y: s * 0.1, width: s * 0.8, height: s * 0.8)
+        let path = NSBezierPath(roundedRect: tile, xRadius: s * 0.18, yRadius: s * 0.18)
+        NSGradient(starting: rgb(0.86, 0.91, 1.0), ending: rgb(0.70, 0.78, 0.95))?.draw(in: path, angle: -90)
+        // Cat, scaled by a whole number when there's room so the pixels stay square.
+        let w = CGFloat(sprite.width), h = CGFloat(sprite.height)
+        let fit = (s * 0.62) / max(w, h)
+        let k = fit >= 1 ? fit.rounded(.down) : fit
+        let dw = w * k, dh = h * k
+        ctx.cgContext.interpolationQuality = .none
+        ctx.cgContext.draw(sprite, in: CGRect(x: ((s - dw) / 2).rounded(), y: (s * 0.16).rounded(), width: dw, height: dh))
+        NSGraphicsContext.restoreGraphicsState()
+        if let png = rep.representation(using: .png, properties: [:]) {
+            try? png.write(to: URL(fileURLWithPath: dir).appendingPathComponent(name + ".png"))
+        }
+    }
 }
 
 // MARK: - Snapshot (for checking the sprites without launching)
@@ -1963,8 +2072,14 @@ final class CatView: NSView {
 
 @main
 struct DeskCatApp {
+    static let respawnNote = Notification.Name("local.deskcat.respawn")
+
     @MainActor static func main() {
         let args = CommandLine.arguments
+        if let i = args.firstIndex(of: "--iconset"), i + 1 < args.count {
+            renderIconset(to: args[i + 1])
+            return
+        }
         if let i = args.firstIndex(of: "--trace") {
             CatView.trace = true
             if i + 1 < args.count { CatView.traceAction = args[i + 1] }
@@ -1987,6 +2102,15 @@ struct DeskCatApp {
                 renderSnapshot(to: args[i + 1])
             }
             return
+        }
+        // Already running? Ask that cat to respawn instead of starting a second one.
+        if let id = Bundle.main.bundleIdentifier, !CatView.trace {
+            let me = ProcessInfo.processInfo.processIdentifier
+            if NSRunningApplication.runningApplications(withBundleIdentifier: id).contains(where: { $0.processIdentifier != me }) {
+                DistributedNotificationCenter.default().postNotificationName(respawnNote, object: nil, userInfo: nil,
+                                                                            deliverImmediately: true)
+                return
+            }
         }
         let app = NSApplication.shared
         let delegate = AppDelegate()

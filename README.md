@@ -7,11 +7,16 @@ A little pixel-art cat that lives on your macOS desktop. She's modeled after a r
 Needs macOS 13+ and the Swift toolchain (Xcode or the Command Line Tools).
 
 ```bash
-./build.sh
-open DeskCat.app
+./build.sh --install
 ```
 
-She has no Dock icon. Quit from the 🐈 menu bar item or by right-clicking her. To start her at login, add `DeskCat.app` in System Settings → General → Login Items.
+That builds `DeskCat.app` (with her pixel-art icon), copies it into Applications, and opens it. After that you can launch her from Spotlight or Launchpad like any app. Plain `./build.sh` just builds the app in this folder.
+
+She has no Dock icon; she lives in the 🐈 menu bar item and her right-click menu.
+
+- **Respawn:** choose "Respawn" from her menu, or just open DeskCat again. Either one drops her back in from the top of the screen your cursor is on, and never starts a second cat.
+- **Open at Login:** toggle it in her menu.
+- **Quit:** "Quit DeskCat" in her menu.
 
 ## What she does
 
@@ -25,7 +30,7 @@ She has no Dock icon. Quit from the 🐈 menu bar item or by right-clicking her.
 
 - **Click** her to pet her.
 - **Drag** her to pick her up by the scruff. She swings as you move. Let go mid-motion to toss her.
-- **Right-click** her, or use the menu bar item, for: Pet, Come Here, Nap Time, Climb Stairs, Jump Up, Play with Yarn, Always on Top, Quit.
+- **Right-click** her, or use the menu bar item, for: Pet, Come Here, Nap Time, Climb Stairs, Jump Up, Play with Yarn, Respawn, Always on Top, Open at Login, Quit.
 
 ## How it works
 
@@ -47,5 +52,6 @@ DeskCat.app/Contents/MacOS/DeskCat --snapshot out.png           # sprite sheet o
 DeskCat.app/Contents/MacOS/DeskCat --snapshot out.png --zoom    # close-up of a few poses
 DeskCat.app/Contents/MacOS/DeskCat --compare-head out.png       # head sizes side by side
 DeskCat.app/Contents/MacOS/DeskCat --ledges                     # print the ledges she sees
+DeskCat.app/Contents/MacOS/DeskCat --iconset out.iconset        # render the app icon images
 DeskCat.app/Contents/MacOS/DeskCat --trace stairs|jump|yarn     # log state/position while running
 ```
