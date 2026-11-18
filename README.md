@@ -18,6 +18,16 @@ She has no Dock icon; she lives in the 🐈 menu bar item and her right-click me
 - **Open at Login:** toggle it in her menu.
 - **Quit:** "Quit DeskCat" in her menu.
 
+### Updating
+
+From the folder you cloned:
+
+```bash
+git pull && ./build.sh --install
+```
+
+That rebuilds her, quits the old copy, installs the new one and starts it. Your settings (Always on Top, Open at Login) carry over.
+
 ## What she does
 
 - Walks, sits, naps, blinks, and runs after your cursor.
@@ -25,6 +35,38 @@ She has no Dock icon; she lives in the 🐈 menu bar item and her right-click me
 - Climbs onto the tops of your other windows, walks along them, and hops off. If a window moves or closes under her, she falls and lands on her feet.
 - Sometimes conjures ghostly stairs and walks up them (the steps fade behind her), or leaps onto a floating plank.
 - Plays with a yarn ball. You can click it or fling it, too.
+
+## Hold up a sign (Claude Code hook)
+
+She can sit up and hold a little sign, for example "DONE!" when a Claude agent finishes. Any program can ask her to:
+
+```bash
+/Applications/DeskCat.app/Contents/MacOS/DeskCat --sign "DONE!"
+```
+
+The sign fits up to 8 characters (letters, numbers, `! ? . , : - '`, and `<3` for a heart). She holds it for 10 seconds, or until you click her. If she's mid-air or on the stairs, she shows it as soon as she lands.
+
+To have her do it whenever Claude Code (CLI, desktop app or IDE) finishes a reply, add a `Stop` hook to `~/.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Applications/DeskCat.app/Contents/MacOS/DeskCat --sign \"DONE!\" >/dev/null 2>&1 || true",
+            "async": true
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+If your settings file already has a `hooks` section, add the `Stop` entry inside it. Use `~/Applications/...` instead if that's where `build.sh` installed her.
 
 ## Interacting
 
@@ -54,4 +96,5 @@ DeskCat.app/Contents/MacOS/DeskCat --compare-head out.png       # head sizes sid
 DeskCat.app/Contents/MacOS/DeskCat --ledges                     # print the ledges she sees
 DeskCat.app/Contents/MacOS/DeskCat --iconset out.iconset        # render the app icon images
 DeskCat.app/Contents/MacOS/DeskCat --trace stairs|jump|yarn     # log state/position while running
+DeskCat.app/Contents/MacOS/DeskCat --sign "DONE!"               # ask the running cat to hold up a sign
 ```

@@ -420,7 +420,55 @@ func makeImage(_ px: Pixels, mirrored: Bool) -> CGImage? {
     "R": rgb(1.0, 0.38, 0.52),
     "H": rgb(1.0, 0.86, 0.90),
     "Z": rgb(0.55, 0.68, 1.0),
+    "O": rgb(CGFloat(outlineRGB.0) / 255, CGFloat(outlineRGB.1) / 255, CGFloat(outlineRGB.2) / 255),
+    "W": rgb(CGFloat(whiteTones[0].0) / 255, CGFloat(whiteTones[0].1) / 255, CGFloat(whiteTones[0].2) / 255),
+    "w": rgb(CGFloat(whiteTones[1].0) / 255, CGFloat(whiteTones[1].1) / 255, CGFloat(whiteTones[1].2) / 255),
+    "S": rgb(0.98, 0.95, 0.86),  // sign paper
+    "s": rgb(0.86, 0.80, 0.68),  // sign paper, shaded bottom
+    "T": rgb(0.17, 0.12, 0.12),  // sign lettering
 ]
+
+/// A front paw gripping the top edge of the sign.
+let pawSprite = [".OOO.", "OWWWO", "OWWwO", "OwOwO"]
+
+/// A tiny 5-pixel-tall font for the sign. Glyphs can be different widths.
+let pixelFont: [Character: [String]] = [
+    "A": [".#.", "#.#", "###", "#.#", "#.#"], "B": ["##.", "#.#", "##.", "#.#", "##."],
+    "C": [".##", "#..", "#..", "#..", ".##"], "D": ["##.", "#.#", "#.#", "#.#", "##."],
+    "E": ["###", "#..", "##.", "#..", "###"], "F": ["###", "#..", "##.", "#..", "#.."],
+    "G": [".##", "#..", "#.#", "#.#", ".##"], "H": ["#.#", "#.#", "###", "#.#", "#.#"],
+    "I": ["###", ".#.", ".#.", ".#.", "###"], "J": ["..#", "..#", "..#", "#.#", ".#."],
+    "K": ["#.#", "#.#", "##.", "#.#", "#.#"], "L": ["#..", "#..", "#..", "#..", "###"],
+    "M": ["#...#", "##.##", "#.#.#", "#...#", "#...#"], "N": ["#..#", "##.#", "#.##", "#..#", "#..#"],
+    "O": [".#.", "#.#", "#.#", "#.#", ".#."], "P": ["##.", "#.#", "##.", "#..", "#.."],
+    "Q": [".#.", "#.#", "#.#", "##.", ".##"], "R": ["##.", "#.#", "##.", "#.#", "#.#"],
+    "S": [".##", "#..", ".#.", "..#", "##."], "T": ["###", ".#.", ".#.", ".#.", ".#."],
+    "U": ["#.#", "#.#", "#.#", "#.#", "###"], "V": ["#.#", "#.#", "#.#", "#.#", ".#."],
+    "W": ["#...#", "#...#", "#.#.#", "##.##", "#...#"], "X": ["#.#", "#.#", ".#.", "#.#", "#.#"],
+    "Y": ["#.#", "#.#", ".#.", ".#.", ".#."], "Z": ["###", "..#", ".#.", "#..", "###"],
+    "0": ["###", "#.#", "#.#", "#.#", "###"], "1": [".#.", "##.", ".#.", ".#.", "###"],
+    "2": ["##.", "..#", ".#.", "#..", "###"], "3": ["##.", "..#", ".#.", "..#", "##."],
+    "4": ["#.#", "#.#", "###", "..#", "..#"], "5": ["###", "#..", "##.", "..#", "##."],
+    "6": [".##", "#..", "###", "#.#", "###"], "7": ["###", "..#", ".#.", ".#.", ".#."],
+    "8": ["###", "#.#", "###", "#.#", "###"], "9": ["###", "#.#", "###", "..#", "##."],
+    "!": ["#", "#", "#", ".", "#"], "?": ["##.", "..#", ".#.", "...", ".#."],
+    ".": [".", ".", ".", ".", "#"], ",": ["..", "..", "..", ".#", "#."], ":": [".", "#", ".", "#", "."],
+    "-": ["...", "...", "###", "...", "..."], "'": ["#", "#", ".", ".", "."], " ": ["..", "..", "..", "..", ".."],
+    "<": [".#.#.", "#####", "#####", ".###.", "..#.."],  // "<3" is drawn as a heart
+]
+
+/// The sign's lettering as rows of pixels ("<3" becomes a heart).
+func signGlyphRows(_ text: String) -> [String] {
+    var rows = Array(repeating: "", count: 5)
+    let chars = Array(text.uppercased().replacingOccurrences(of: "<3", with: "<"))
+    var first = true
+    for ch in chars {
+        guard let g = pixelFont[ch] else { continue }
+        for r in 0..<5 { rows[r] += (first ? "" : ".") + g[r] }
+        first = false
+    }
+    return rows
+}
 
 let heartSprite = [
     ".KK...KK.",
@@ -486,7 +534,8 @@ enum CatState {
     case walking, sitting, sleeping, chasing, petted, held, falling, landing, swatting, crouching, jumping, climbing,
          playing,
          airborne,  // drawing only: mid-air, ready to land
-         lyingDown  // winding down into a nap
+         lyingDown,  // winding down into a nap
+         holdingSign  // sitting up holding a little sign (e.g. when a Claude agent finishes)
 }
 
 // MARK: - Ledges (screen floors and the tops of other windows)
@@ -638,6 +687,18 @@ final class CatView: NSView {
     var swing: CGFloat = 0, swingVel: CGFloat = 0
     var airTime: CGFloat = 0
     var heldMouseX: CGFloat = 0, heldVX: CGFloat = 0
+    /// The sign she holds up, and how long she's been holding it.
+    var signText = "DONE!"
+    var signAge: CGFloat = 0
+    /// A sign request that's waiting for her to be free (not mid-air, held, or on the stairs).
+    var pendingSign: String?
+    static let signDuration: CGFloat = 10
+
+    /// Hold up a sign as soon as she can.
+    func showSign(_ text: String) {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        pendingSign = String((t.isEmpty ? "DONE!" : t).prefix(8))
+    }
     var dragLast = NSPoint.zero, dragLastTime: TimeInterval = 0, dragVel = NSPoint.zero
     var vx: CGFloat = 0
     var ledges: [Ledge] = []
@@ -759,6 +820,7 @@ final class CatView: NSView {
         case .landing: stateTime = duration ?? 0.6
         case .swatting: stateTime = duration ?? CatView.swatDuration
         case .crouching: stateTime = duration ?? 0.35
+        case .holdingSign: stateTime = duration ?? CatView.signDuration
         case .held, .falling, .jumping, .climbing, .playing, .airborne: stateTime = .infinity
         }
     }
@@ -1167,7 +1229,22 @@ final class CatView: NSView {
             }
         }
 
+        // A sign to hold up: wait until she's on her feet and not mid-climb, then wake up / stop and show it.
+        if let text = pendingSign, ![.held, .falling, .jumping, .climbing, .crouching, .landing].contains(state) {
+            pendingSign = nil
+            signText = text
+            signAge = 0
+            route = []
+            turnTime = 0
+            hearts.removeAll()
+            enter(.holdingSign)
+            window?.orderFrontRegardless()
+        }
+
         switch state {
+        case .holdingSign:
+            signAge += dt
+            if stateTime <= 0 { enter(.sitting, .random(in: 2...4)) }
         case .walking:
             if !turning { x += (facingRight ? 1 : -1) * 48 * dt }
             walkPhase += dt * 8
@@ -1490,7 +1567,25 @@ final class CatView: NSView {
         return (ras, face)
     }
 
+    /// Sitting up facing the viewer, holding a sign in front of her (the sign itself is drawn on top).
+    func frontSitPose() -> (Raster, Face) {
+        var ras = Raster()
+        let tq = Float((t * 6).rounded(.down) / 6)
+        let sway = (sin(tq * 2) * 1.5).rounded()
+        // Tail curling up beside her so it peeks out past the sign.
+        let tailP = ras.newPart()
+        ras.tube(bezier(V(34, 43), V(47, 45), V(50, 36), V(47 + sway, 27)), 1.6, 1.2, part: tailP, mat: .black)
+        let bodyP = ras.newPart()
+        ras.ellipse(19.5, 40.5, 6, 4.5, part: bodyP, bias: 0.6, mat: spotted([(0, -0.2, 0.6, 0.6)]))
+        ras.ellipse(36.5, 40.5, 6, 4.5, part: bodyP, bias: 0.6, mat: spotted([]))
+        ras.ellipse(28, 34, 9.5, 10.5, part: bodyP, mat: spotted([(-0.7, -0.3, 0.35, 0.4), (0.65, 0.25, 0.3, 0.35)]))
+        var face = ras.head(28, 18, look: 0)
+        face.eyes = signAge < 1.2 ? .happy : (blinkLeft > 0 ? .closed : .open)
+        return (ras, face)
+    }
+
     func buildPose() -> (Raster, Face) {
+        if state == .holdingSign { return frontSitPose() }
         let saved = state
         if state == .playing { state = playMoving ? .chasing : .sitting }  // reuse run / sit poses
         if state == .falling && airTime >= 0.12 { state = .airborne }  // righted herself after a moment
@@ -1704,6 +1799,8 @@ final class CatView: NSView {
             face = ras.head(43, 18, look: 1.5)
             face.eyes = .open
 
+        case .holdingSign:
+            return frontSitPose()  // (normally handled before the switch)
         case .held, .falling:
             // Hang from the scruff (just above the head's center); mirrored poses swing the other way.
             ras.pivot = V(28, 14)
@@ -1808,10 +1905,42 @@ final class CatView: NSView {
                            scale: s, alpha: sin(p * .pi))
             }
         }
+        if state == .holdingSign { drawSign() }
         for h in hearts {
             drawSprite(heartSprite, at: P(h.x.rounded(), h.y.rounded()), scale: 2,
                        alpha: max(0, 1 - h.age / 1.6))
         }
+    }
+
+    /// The paper sign in front of her chest, with her paws over the top edge.
+    func drawSign() {
+        let text = signGlyphRows(signText)
+        let tw = text[0].count
+        let w = tw + 4, h = 9
+        // Pops up quickly, then gets waved up and down a few times before she holds it still.
+        let rise = max(0, 1 - signAge / 0.25)
+        let pump: CGFloat = signAge > 0.25 && signAge < 3 && Int(signAge * 4) % 2 == 0 ? 1 : 0
+        let left = (anchor.x - CGFloat(w) / 2 * S).rounded()
+        let bottom = anchor.y + (1 - pump - (rise * 6).rounded()) * S
+        var rows: [String] = []
+        for r in 0..<h {
+            var row = ""
+            for c in 0..<w {
+                let edgeX = c == 0 || c == w - 1, edgeY = r == 0 || r == h - 1
+                if edgeX && edgeY { row += "." }
+                else if edgeX || edgeY { row += "O" }
+                else if r >= 2 && r <= 6 && c >= 2 && c < 2 + tw {
+                    row += text[r - 2][text[r - 2].index(text[r - 2].startIndex, offsetBy: c - 2)] == "#" ? "T" : "S"
+                } else { row += r == h - 2 ? "s" : "S" }
+            }
+            rows.append(row)
+        }
+        drawSprite(rows, at: P(left, bottom), scale: S, alpha: 1)
+        // Paws gripping the top edge, a little in from each corner.
+        let pawY = bottom + CGFloat(h - 2) * S
+        let inset = CGFloat(min(4, (w - 10) / 2 + 1)) * S
+        drawSprite(pawSprite, at: P(left + inset - S, pawY), scale: S, alpha: 1)
+        drawSprite(pawSprite, at: P(left + CGFloat(w) * S - inset - 4 * S, pawY), scale: S, alpha: 1)
     }
 }
 
@@ -1860,6 +1989,13 @@ final class CatView: NSView {
         // Opening DeskCat again (Spotlight, Launchpad, Finder) respawns this cat instead of starting another.
         DistributedNotificationCenter.default().addObserver(self, selector: #selector(respawn),
                                                             name: DeskCatApp.respawnNote, object: nil)
+        // `DeskCat --sign TEXT` (e.g. from a Claude Code hook) asks her to hold up a sign.
+        DistributedNotificationCenter.default().addObserver(self, selector: #selector(holdSign(_:)),
+                                                            name: DeskCatApp.signNote, object: nil)
+    }
+
+    @objc func holdSign(_ note: Notification) {
+        cat.showSign(note.userInfo?["text"] as? String ?? "DONE!")
     }
 
     /// Opening the app again while it's running (Spotlight, Launchpad, Finder) respawns her.
@@ -1981,7 +2117,8 @@ final class CatView: NSView {
                                         (.lyingDown, 0), (.lyingDown, 2), (.lyingDown, 3), (.lyingDown, 4),
                                         (.lyingDown, 5), (.lyingDown, 6),
                                         (.swatting, 0), (.swatting, 1), (.swatting, 2), (.swatting, 3),
-                                        (.climbing, 0), (.climbing, 1), (.climbing, 2), (.climbing, 3), (.climbing, 4)]
+                                        (.climbing, 0), (.climbing, 1), (.climbing, 2), (.climbing, 3), (.climbing, 4),
+                                        (.holdingSign, 0), (.holdingSign, 1), (.holdingSign, 2), (.holdingSign, 3)]
     if let only { poses = poses.filter { only.contains($0.0) } }
     let base = CatView.size
     let cell = NSSize(width: base.width * zoom, height: base.height * zoom)
@@ -2010,6 +2147,10 @@ final class CatView: NSView {
             if pose.0 == .walking && pose.1 >= 10 {
                 v.turnFromRight = false
                 v.turnTime = CatView.turnDuration * (1 - [0.15, 0.5, 0.85][Int(pose.1) - 10])
+            }
+            if pose.0 == .holdingSign {
+                v.signAge = pose.1 == 0 ? 0.6 : 5
+                v.signText = ["DONE!", "DONE!", "HI <3", "WOW"][Int(pose.1)]
             }
             if pose.0 == .lyingDown { v.stateTime = CatView.lieDownDuration * (1 - pose.1 / 6 - 0.01) }
             if pose.0 == .falling { v.airTime = 1; v.vy = [500, 0, -400, -900][min(Int(pose.1), 3)] }
@@ -2073,9 +2214,17 @@ final class CatView: NSView {
 @main
 struct DeskCatApp {
     static let respawnNote = Notification.Name("local.deskcat.respawn")
+    static let signNote = Notification.Name("local.deskcat.sign")
 
     @MainActor static func main() {
         let args = CommandLine.arguments
+        // Tell the running cat to hold up a sign, then exit (does nothing if she isn't running).
+        if let i = args.firstIndex(of: "--sign") {
+            let text = i + 1 < args.count ? args[i + 1] : "DONE!"
+            DistributedNotificationCenter.default().postNotificationName(signNote, object: nil, userInfo: ["text": text],
+                                                                        deliverImmediately: true)
+            return
+        }
         if let i = args.firstIndex(of: "--iconset"), i + 1 < args.count {
             renderIconset(to: args[i + 1])
             return
@@ -2097,7 +2246,7 @@ struct DeskCatApp {
         }
         if let i = args.firstIndex(of: "--snapshot"), i + 1 < args.count {
             if args.contains("--zoom") {
-                renderSnapshot(to: args[i + 1], zoom: 4, only: [.walking])
+                renderSnapshot(to: args[i + 1], zoom: 4, only: [.sitting, .holdingSign])
             } else {
                 renderSnapshot(to: args[i + 1])
             }
