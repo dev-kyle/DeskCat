@@ -44,9 +44,9 @@ She can sit up and hold a little sign, for example "DONE!" when a Claude agent f
 /Applications/DeskCat.app/Contents/MacOS/DeskCat --sign "DONE!"
 ```
 
-The sign fits up to 8 characters (letters, numbers, `! ? . , : - '`, and `<3` for a heart). She holds it for 10 seconds, or until you click her. If she's mid-air or on the stairs, she shows it as soon as she lands.
+The sign fits up to 8 characters (letters, numbers, `! ? . , : - '`, and `<3` for a heart); letters that won't fit on the sign are left off. She holds it for 10 seconds, or until you click her. If she's mid-air or on the stairs, she shows it as soon as she lands.
 
-To have her do it whenever Claude Code (CLI, desktop app or IDE) finishes a reply, add a `Stop` hook to `~/.claude/settings.json`:
+To have her show "DONE!" whenever Claude Code (CLI, desktop app or IDE) finishes a reply, and "APPROVE" when it's waiting for you to approve something, add these hooks to `~/.claude/settings.json`:
 
 ```json
 {
@@ -61,12 +61,24 @@ To have her do it whenever Claude Code (CLI, desktop app or IDE) finishes a repl
           }
         ]
       }
+    ],
+    "PermissionRequest": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Applications/DeskCat.app/Contents/MacOS/DeskCat --sign \"APPROVE\" >/dev/null 2>&1 || true",
+            "async": true
+          }
+        ]
+      }
     ]
   }
 }
 ```
 
-If your settings file already has a `hooks` section, add the `Stop` entry inside it. Use `~/Applications/...` instead if that's where `build.sh` installed her.
+If your settings file already has a `hooks` section (or a `Stop` / `PermissionRequest` list), add these entries to it. Use `~/Applications/...` instead if that's where `build.sh` installed her.
 
 ## Interacting
 

@@ -458,12 +458,14 @@ let pixelFont: [Character: [String]] = [
 ]
 
 /// The sign's lettering as rows of pixels ("<3" becomes a heart).
-func signGlyphRows(_ text: String) -> [String] {
+/// Letters that would make it wider than `maxWidth` pixels are left off, so the sign never gets clipped.
+func signGlyphRows(_ text: String, maxWidth: Int = Int(CatView.size.width / S) - 4) -> [String] {
     var rows = Array(repeating: "", count: 5)
     let chars = Array(text.uppercased().replacingOccurrences(of: "<3", with: "<"))
     var first = true
     for ch in chars {
         guard let g = pixelFont[ch] else { continue }
+        if rows[0].count + (first ? 0 : 1) + g[0].count > maxWidth { break }
         for r in 0..<5 { rows[r] += (first ? "" : ".") + g[r] }
         first = false
     }
@@ -1936,11 +1938,10 @@ final class CatView: NSView {
             rows.append(row)
         }
         drawSprite(rows, at: P(left, bottom), scale: S, alpha: 1)
-        // Paws gripping the top edge, a little in from each corner.
+        // Paws gripping the top edge in front of her chest (same spot however wide the sign is).
         let pawY = bottom + CGFloat(h - 2) * S
-        let inset = CGFloat(min(4, (w - 10) / 2 + 1)) * S
-        drawSprite(pawSprite, at: P(left + inset - S, pawY), scale: S, alpha: 1)
-        drawSprite(pawSprite, at: P(left + CGFloat(w) * S - inset - 4 * S, pawY), scale: S, alpha: 1)
+        drawSprite(pawSprite, at: P((anchor.x - 7.5 * S).rounded(), pawY), scale: S, alpha: 1)
+        drawSprite(pawSprite, at: P((anchor.x + 2.5 * S).rounded(), pawY), scale: S, alpha: 1)
     }
 }
 
@@ -2150,7 +2151,7 @@ final class CatView: NSView {
             }
             if pose.0 == .holdingSign {
                 v.signAge = pose.1 == 0 ? 0.6 : 5
-                v.signText = ["DONE!", "DONE!", "HI <3", "WOW"][Int(pose.1)]
+                v.signText = ["DONE!", "DONE!", "HI <3", "APPROVE"][Int(pose.1)]
             }
             if pose.0 == .lyingDown { v.stateTime = CatView.lieDownDuration * (1 - pose.1 / 6 - 0.01) }
             if pose.0 == .falling { v.airTime = 1; v.vy = [500, 0, -400, -900][min(Int(pose.1), 3)] }
